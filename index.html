@@ -97,6 +97,20 @@
     font-size: clamp(24px, 2.8vw, 32px); font-weight: 900; box-shadow: 0 5px 0 #0f2017;
   }
   .home-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 #0f2017; }
+  .start-btn {
+    background: var(--brand); color: var(--brand-ink); border-radius: 999px;
+    padding: 28px 88px; font-size: clamp(30px, 4vw, 44px); font-weight: 900;
+    box-shadow: 0 8px 0 #0f2017; transition: transform .08s, box-shadow .08s;
+  }
+  .start-btn:active { transform: translateY(6px); box-shadow: 0 2px 0 #0f2017; }
+
+  #score { align-items: center; justify-content: center; }
+  .score-box { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; animation: pop .3s ease-out; }
+  .score-emoji { font-size: clamp(80px, 12vw, 140px); line-height: 1; }
+  .score-label { margin: 16px 0 0; font-size: 26px; color: var(--muted); font-weight: 700; }
+  .score-num { font-size: clamp(80px, 13vw, 150px); font-weight: 900; color: var(--brand); line-height: 1.1; }
+  .score-msg { margin: 0 0 32px; font-size: clamp(24px, 3vw, 34px); font-weight: 700; }
+  .score-auto { margin: 16px 0 0; font-size: 18px; color: var(--muted); }
   @keyframes pop { from { transform: scale(.95); opacity: 0; } to { transform: none; opacity: 1; } }
 
   /* 세로 모드 / 좁은 화면 */
@@ -120,9 +134,19 @@
 <section id="home" class="screen active">
   <div class="title">
     <h1>생물 동정 퀴즈</h1>
-    <p>사진을 보고 이름을 맞혀 보세요! 분류군을 고르세요.</p>
   </div>
-  <div class="cats" id="cats"></div>
+  <button class="start-btn" id="start-btn">게임 시작</button>
+</section>
+
+<section id="score" class="screen">
+  <div class="score-box">
+    <div class="score-emoji" id="score-emoji"></div>
+    <p class="score-label">맞힌 문제</p>
+    <div class="score-num"><span id="score-num"></span> / <span id="score-total"></span></div>
+    <p class="score-msg" id="score-msg"></p>
+    <button class="start-btn" id="restart-btn">처음으로</button>
+    <p class="score-auto" id="score-auto"></p>
+  </div>
 </section>
 
 <section id="quiz" class="screen">
@@ -137,7 +161,7 @@
       <div class="result" id="result">
         <div class="verdict" id="verdict"></div>
         <div class="answer-line">정답: <b id="answer-name"></b></div>
-        <button class="home-btn" id="home-btn">메인으로 돌아가기</button>
+        <button class="home-btn" id="next-btn">확인</button>
       </div>
     </div>
   </div>
@@ -200,31 +224,23 @@
     window.scrollTo(0, 0);
   }
 
-  function renderHome() {
-    const wrap = $("cats");
-    wrap.innerHTML = "";
-    ORDER.forEach(k => {
-      const c = DATA[k];
-      const n = c.questions.length;
-      const b = document.createElement("button");
-      b.className = "cat";
-      b.disabled = n === 0;
-      b.innerHTML = `<span class="emoji">${c.emoji}</span><span class="name">${c.name}</span>` +
-        `<span class="sub">${n ? n + "문제" : "준비 중"}</span>`;
-      b.addEventListener("click", () => startQuiz(k));
-      wrap.appendChild(b);
-    });
+  // ---------- 게임 진행: 곤충 → 조류 → 어류 ----------
+  const ROUND = ["insects", "birds", "fish"].filter(k => DATA[k].questions.length > 0);
+  let step = 0, correct = 0, locked = false, autoTimer = null;
+
+  function startGame() {
+    clearInterval(autoTimer);
+    step = 0; correct = 0;
+    showQuestion();
   }
 
-  let locked = false;
-
-  function startQuiz(catKey) {
+  function showQuestion() {
+    const catKey = ROUND[step];
     const cat = DATA[catKey];
     const q = nextQuestion(catKey);
-    if (!q) return;
     locked = false;
 
-    $("cat-chip").textContent = cat.emoji + " " + cat.name;
+    $("cat-chip").textContent = `${cat.emoji} ${cat.name} · ${step + 1}/${ROUND.length}`;
     $("q-img").src = q.image;
     $("result").classList.remove("show");
 
@@ -246,6 +262,8 @@
     if (locked) return;
     locked = true;
     const ok = btn.dataset.name === q.answer;
+    if (ok) correct++;
+    $("next-btn").textContent = step + 1 < ROUND.length ? "확인 · 다음 문제" : "확인 · 결과 보기";
     document.querySelectorAll(".choice").forEach(b => {
       b.disabled = true;
       if (b.dataset.name === q.answer) b.classList.add("correct");
@@ -259,12 +277,36 @@
     $("result").classList.add("show");
   }
 
-  $("home-btn").addEventListener("click", () => show("home"));
+  function showScore() {
+    const total = ROUND.length;
+    $("score-num").textContent = correct;
+    $("score-total").textContent = total;
+    const perfect = correct === total;
+    $("score-emoji").textContent = perfect ? "🏆" : correct > 0 ? "👏" : "🌱";
+    $("score-msg").textContent = perfect ? "모두 맞혔어요! 동정 고수!"
+      : correct > 0 ? "잘했어요! 다음엔 전부 맞혀 봐요." : "다음엔 꼭 맞혀 봐요!";
+    show("score");
+
+    // 아무도 누르지 않으면 잠시 후 자동으로 처음 화면으로
+    let left = 15;
+    const tick = () => { $("score-auto").textContent = `${left}초 후 처음 화면으로 돌아갑니다`; };
+    tick();
+    clearInterval(autoTimer);
+    autoTimer = setInterval(() => {
+      left--;
+      if (left <= 0) { clearInterval(autoTimer); show("home"); } else tick();
+    }, 1000);
+  }
+
+  $("start-btn").addEventListener("click", startGame);
+  $("next-btn").addEventListener("click", () => {
+    step++;
+    if (step < ROUND.length) showQuestion(); else showScore();
+  });
+  $("restart-btn").addEventListener("click", () => { clearInterval(autoTimer); show("home"); });
 
   // 이미지 미리 불러오기
   ORDER.forEach(k => DATA[k].questions.forEach(q => { const i = new Image(); i.src = q.image; }));
-
-  renderHome();
 })();
 </script>
 </body>
